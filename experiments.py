@@ -58,11 +58,27 @@ if __name__ == "__main__":
                 buffer_size = buffer_size*2 if dataset_filename=="tiny-imagenet" else buffer_size
                 summarized_per_class = buffer_size/num_classes
 
-                configs.append(Config(dataset=dataset_filename, buffer_size=buffer_size, seed=random_seed, summarized_per_class=summarized_per_class, incremental_softmax=False))  # SSD
-                configs.append(Config(dataset=dataset_filename, buffer_size=buffer_size, seed=random_seed, summarized_per_class=0)) # SCR
+                configs.append(Config(dataset=dataset_filename,
+                                      buffer_size=buffer_size,
+                                      seed=random_seed,
+                                      summarized_per_class=summarized_per_class,
+                                      incremental_softmax=False))  # SSD
+                configs.append(Config(dataset=dataset_filename,
+                                      buffer_size=buffer_size,
+                                      seed=random_seed,
+                                      summarized_per_class=0)) # SCR
 
-                configs.append(Config(dataset=dataset_filename, buffer_size=buffer_size, seed=random_seed, summarized_per_class=0, contrastive_learning=False)) # ER
-                configs.append(Config(dataset=dataset_filename, buffer_size=buffer_size, seed=random_seed, summarized_per_class=0, contrastive_learning=False, use_memory=False)) # finetune
+                configs.append(Config(dataset=dataset_filename,
+                                      buffer_size=buffer_size,
+                                      seed=random_seed,
+                                      summarized_per_class=0,
+                                      contrastive_learning=False)) # ER
+                configs.append(Config(dataset=dataset_filename,
+                                      buffer_size=buffer_size,
+                                      seed=random_seed,
+                                      summarized_per_class=0,
+                                      contrastive_learning=False,
+                                      use_memory=False)) # finetune
 
 
     for config in configs:

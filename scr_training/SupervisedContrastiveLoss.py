@@ -96,9 +96,6 @@ class SupConLoss(nn.Module):
 
         contrast_count = features.shape[1]
         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
-        # ovaj deo ga samo vrati na ono od ranije, skorz visak,
-        # mozemo samo ovaj loss da uzmemo da adaptiramo da bude "nas"
-        # svakako mozemo da ga sto vise i vise uporedimo sa nasim
         if self.contrast_mode == 'one':
             anchor_feature = features[:, 0]
             anchor_count = 1

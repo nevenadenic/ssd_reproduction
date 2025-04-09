@@ -251,7 +251,7 @@ def train(config, plot_graph=False):
                             # Relationship matching loss
                             mean_emb_Mc = emb_Mc.mean(dim=0, keepdim=True)
                             mean_emb_Bc = emb_Bc.mean(dim=0, keepdim=True)
-                            emb_d_Bc = torch.norm(mean_emb_Bc - emb_Ms_diff_Mc, p=2, dim=1) # ALERT: OVDE JE RACUNAO CEO NORM RAZLIKE (KOJA SE DOBRO BROADCASTOVALA) I VRACAO JEDAN JEDINI ELEMENT
+                            emb_d_Bc = torch.norm(mean_emb_Bc - emb_Ms_diff_Mc, p=2, dim=1)
                             emb_d_Mc = torch.norm(mean_emb_Mc - emb_Ms_diff_Mc, p=2, dim=1)
 
                             if config.relationship_matching_distance=="l1":
