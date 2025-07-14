@@ -8,9 +8,13 @@ class NearestClassMeanClassifier:
         self.feature_dim = feature_dim
         self.class_means = torch.zeros(num_classes, feature_dim).to(device)
         self.class_counts = torch.zeros(num_classes).to(device)
+        self.current_task_number = 0
 
     def update_means(self, memory, task_number, model):
         self.empty()
+
+        self.current_task_number = task_number
+
         for label in range(10 * (task_number + 1)):
             ncm_inputs, ncm_labels = memory.get_all_with_label(label)
             with torch.no_grad():
@@ -35,7 +39,7 @@ class NearestClassMeanClassifier:
 
     def __call__(self, features):
         features = features / features.norm(dim=1, keepdim=True)
-        dists = torch.cdist(features, self.class_means)
+        dists = torch.cdist(features, self.class_means[:10*(self.current_task_number+1)])
 
         return torch.argmin(dists, dim=1)
 
