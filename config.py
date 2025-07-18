@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
-    seed: int = 0 # 519
+    seed: int = 0
     num_runs: int = 1
 
     # Data

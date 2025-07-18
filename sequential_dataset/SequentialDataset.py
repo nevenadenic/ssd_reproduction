@@ -16,7 +16,6 @@ class SequentialDataset:
         self.do_balanced_sampling = do_balanced_sampling
         self.initial_transform = transforms.Compose([
             transforms.ToTensor(),
-            #transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
 
         if dataset=="cifar-100":
@@ -63,7 +62,7 @@ class SequentialDataset:
         x_train_per_task, y_train_per_task = self.x_train[selected_train_idx], self.y_train[selected_train_idx]
 
 
-        print(f"Task {task_number + 1}: Classes {classes_per_task}")
+        print(f"\n\nTask {task_number + 1}: Classes {classes_per_task}")
         print(f"Train Samples: {x_train_per_task.shape[0]}")
 
         dataset = TensorDataset(x_train_per_task, y_train_per_task)

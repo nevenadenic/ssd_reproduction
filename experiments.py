@@ -1,21 +1,30 @@
 from training import train
 from config import Config
-import random
 from collections import defaultdict
 from statistics import mean
+import time
 
 class AccuracyLogger:
     def __init__(self):
-        self.data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        self.data = defaultdict(
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(list)  # <-- added fourth level for True/False keys
+                )
+            )
+        )
 
-    def append(self, dataset, method, size, value):
-        self.data[dataset][method][size].append(value)
+    def append(self, dataset, method, size, incremental_softmax, value):
+        if method == "SSD":
+            self.data[dataset][method][size][incremental_softmax].append(value)
+        else:
+            self.data[dataset][method][size][True].append(value)
 
-    def get_values(self, dataset, method, size):
-        return self.data[dataset][method][size]
+    def get_values(self, dataset, method, size, incremental_softmax=True):
+        return self.data[dataset][method][size][incremental_softmax]
 
-    def get_average(self, dataset, method, size):
-        values = self.get_values(dataset, method, size)
+    def get_average(self, dataset, method, size, incremental_softmax=True):
+        values = self.get_values(dataset, method, size, incremental_softmax)
         return mean(values) if values else None
 
     def get_all_averages(self):
@@ -25,26 +34,46 @@ class AccuracyLogger:
             for method, sizes in methods.items():
                 averages[dataset][method] = {}
                 for size, values in sizes.items():
-                    averages[dataset][method][size] = mean(values) if values else None
+                    averages[dataset][method][size] = {}
+                    if method != "SSD":
+                        averages[dataset][method][size] = mean(values)
+                    else:
+                        bool_values = values
+                        for flag, values in bool_values.items():
+                            averages[dataset][method][size][flag] = mean(values) if values else None
         return averages
 
     def log_all_averages(self, seeds):
-        with open("averages.txt", "a") as f:
+        with open(f"averages_{time.time}.txt", "a") as f:
             f.write(f"\n\nSeeds: {seeds}\n")
             for dataset, methods in self.data.items():
                 for method, sizes in methods.items():
                     for size, values in sizes.items():
-                        avg = mean(values) if values else None
-                        f.write(
-                            f"- Dataset: {dataset}, Method: {method}, Size: {size} → Avg: {avg:.4f}\n" if avg is not None else
-                            f"- Dataset: {dataset}, Method: {method}, Size: {size} → No values logged.")
+                        if method != "SSD":
+                            average = mean(values)
+                            if average:
+                                f.write(
+                                    f"- Dataset: {dataset}, Method: {method}, Size: {size} → Avg: {average:.4f}\n"
+                                )
+                            else:
+                                f.write(f"- Dataset: {dataset}, Method: {method}, Size: {size} → Avg: None\n")
+                        else:
+                            bool_values = values
+                            for flag, values in bool_values.items():
+                                average = mean(values)
+                                if average:
+                                    f.write(
+                                        f"- Dataset: {dataset}, Method: {method}, Size: {size}, Incremental softmax: {flag} → Avg: {average:.4f}\n"
+                                    )
+                                else:
+                                    f.write(f"- Dataset: {dataset}, Method: {method}, Size: {size}, Incremental softmax {flag} → Avg: None\n")
 
 
 if __name__ == "__main__":
-    num_seeds = 1
-    random_seeds = [random.randint(0, 10000) for _ in range(num_seeds)]
-    dataset_filenames = ["cifar-100", "mini-imagenet", "tiny-imagenet", "food-101"]
-    buffer_sizes = [100, 500, 1000]
+    # num_seeds = 5
+    seeds = [0]
+    dataset_filenames = ["cifar-100"]
+    buffer_sizes = [100]
 
     configs = []
 
@@ -52,7 +81,7 @@ if __name__ == "__main__":
 
     for dataset_filename in dataset_filenames:
         for buffer_size in buffer_sizes:
-            for random_seed in random_seeds:
+            for seed in seeds:
                 num_classes = 200 if dataset_filename=="tiny-imagenet" else 100
                 num_tasks = 20 if dataset_filename=="tiny-imagenet" else 10
                 buffer_size = buffer_size*2 if dataset_filename=="tiny-imagenet" else buffer_size
@@ -60,22 +89,28 @@ if __name__ == "__main__":
 
                 configs.append(Config(dataset=dataset_filename,
                                       buffer_size=buffer_size,
-                                      seed=random_seed,
+                                      seed=seed,
                                       summarized_per_class=summarized_per_class,
                                       incremental_softmax=False))  # SSD
                 configs.append(Config(dataset=dataset_filename,
                                       buffer_size=buffer_size,
-                                      seed=random_seed,
+                                      seed=seed,
                                       summarized_per_class=0)) # SCR
 
                 configs.append(Config(dataset=dataset_filename,
                                       buffer_size=buffer_size,
-                                      seed=random_seed,
+                                      seed=seed,
+                                      summarized_per_class=summarized_per_class,
+                                      incremental_softmax=True))
+
+                configs.append(Config(dataset=dataset_filename,
+                                      buffer_size=buffer_size,
+                                      seed=seed,
                                       summarized_per_class=0,
                                       contrastive_learning=False)) # ER
                 configs.append(Config(dataset=dataset_filename,
                                       buffer_size=buffer_size,
-                                      seed=random_seed,
+                                      seed=seed,
                                       summarized_per_class=0,
                                       contrastive_learning=False,
                                       use_memory=False)) # finetune
@@ -93,10 +128,7 @@ if __name__ == "__main__":
         else:
             method = "finetune"
 
-        final_test_accs.append(config.dataset, method, config.buffer_size, final_test_acc)
+        final_test_accs.append(config.dataset, method, config.buffer_size, config.incremental_softmax, final_test_acc)
 
-
-        print(f"Current average for {config.dataset} with {config.buffer_size} size, method: {method}: {final_test_accs.get_average(config.dataset, method, config.buffer_size)}%")
-
-    final_test_accs.log_all_averages(random_seeds)
+    final_test_accs.log_all_averages(seeds)
 
