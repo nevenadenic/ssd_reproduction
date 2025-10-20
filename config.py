@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
-    seed: int = 519
+    seed: int = 0
     num_runs: int = 1
 
     # Data
@@ -20,7 +20,7 @@ class Config:
     main_task_memory_batch_size: int = 100  # Samples to replay per batch
 
     # SSD config
-    summarized_per_class: int = 5  # Examples per class for gradient & relationship matching
+    summarized_per_class: int = 5 # Examples per class for gradient & relationship matching
     tau: int = 6  # Each tau batches, one summarizing step is done
     ms_diff_mc_batch_size: int = 10
     relationship_matching_distance: str = "l1"

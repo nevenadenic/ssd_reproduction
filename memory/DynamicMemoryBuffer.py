@@ -17,14 +17,13 @@ class DynamicMemoryBuffer:
 
         self.indices_ms_per_class: list[list[int]] = [[] for _ in range(number_of_classes)]
 
-
         self.indices_mo = []
         self.total_seen_mo = 0
 
 
     def add_batch(self, inputs, labels):
         for (x, y) in zip(inputs, labels):
-            self.total_seen_mo += 1 # maybe?
+            self.total_seen_mo += 1
             if len(self.buffer) < self.total_capacity:
                 self.buffer.append((x, y))
                 if len(self.indices_ms_per_class[y]) < self.summarized_per_class:

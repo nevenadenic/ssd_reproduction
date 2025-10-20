@@ -1,3 +1,6 @@
+import copy
+import os
+
 import torch
 import torchvision.transforms as transforms
 import torch.nn as nn
@@ -5,6 +8,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import random
 
+from config import Config
 from memory.DynamicMemoryBuffer import DynamicMemoryBuffer
 from scr_training.ResNets import SupConResNet, Reduced_ResNet18
 from scr_training.SupervisedContrastiveLoss import SupConLoss
@@ -50,11 +54,11 @@ def train(config, plot_graph=False):
     if config.summarized_per_class == 1:
         lr_for_summarizing_images_update = 2e-4
     elif config.summarized_per_class == 5:
-        lr_for_summarizing_images_update = 1e-3 # 1e-3 # 1e-3? kako su sad ovolike brojke?? something is off here
+        lr_for_summarizing_images_update = 1e-3
     elif config.summarized_per_class == 10:
         lr_for_summarizing_images_update = 4e-3
     else:
-        lr_for_summarizing_images_update = 3e-3 # source: I made it up
+        lr_for_summarizing_images_update = 3e-3
 
 
     memory = DynamicMemoryBuffer(total_capacity=config.buffer_size,
@@ -64,9 +68,9 @@ def train(config, plot_graph=False):
     resnet_dimension = 160 if config.dataset == "cifar-100" else 640
 
     if config.contrastive_learning:
-        main_model = SupConResNet(resnet_dimension).to(device) # because of image sizes
-        ncm_classifier = NearestClassMeanClassifier(num_classes=total_num_classes, feature_dim=resnet_dimension)
-        main_model_criterion = SupConLoss(temperature=0.07) # da li mozda ovo 0.07?
+        main_model = SupConResNet(resnet_dimension).to(device)
+        ncm_classifier = NearestClassMeanClassifier(num_classes=total_num_classes, feature_dim=resnet_dimension, num_of_classes_per_task=num_classes_per_task)
+        main_model_criterion = SupConLoss(temperature=0.07)
         main_model_optimizer = optim.SGD(main_model.parameters(), lr=0.1)
 
     else:
@@ -96,9 +100,14 @@ def train(config, plot_graph=False):
         main_model.train()
 
         total_loss = 0
+
+        this_task_assigned_optimizer_to_images = False
+
         for batch_idx, (inputs, labels) in enumerate(train_loader):
+
             if batch_idx % 100 == 0:
                 print(f"Started batch {batch_idx}...")
+
 
             inputs, labels = inputs.to(device), labels.to(device)
 
@@ -124,27 +133,27 @@ def train(config, plot_graph=False):
 
             if config.use_memory and memory.is_not_empty():
                 memory_inputs, memory_labels = memory.sample_batch(config.main_task_memory_batch_size)
-                memory_inputs = memory_inputs.detach()
+
                 main_model_inputs = torch.cat([main_model_inputs, memory_inputs], dim=0)
-                main_model_labels = torch.cat([main_model_labels, memory_labels], dim=0)  # Labels remain the same
+                main_model_labels = torch.cat([main_model_labels, memory_labels], dim=0)
 
-            augmented_main_model_inputs = augmentation(main_model_inputs)
+                augmented_main_model_inputs = augmentation(main_model_inputs)
 
-            # 2) Main model step
-            if config.contrastive_learning:
-                embeddings = torch.cat([main_model(main_model_inputs).unsqueeze(1),
-                                               main_model(augmented_main_model_inputs).unsqueeze(1)], dim=1)
-            else:
-                embeddings = torch.cat([main_model(main_model_inputs),
-                                               main_model(augmented_main_model_inputs)], dim=1)
+                # 2) Main model step
+                if config.contrastive_learning:
+                    embeddings = torch.cat([main_model(main_model_inputs).unsqueeze(1),
+                                                   main_model(augmented_main_model_inputs).unsqueeze(1)], dim=1)
+                else:
+                    embeddings = torch.cat([main_model(main_model_inputs),
+                                                   main_model(augmented_main_model_inputs)], dim=1)
 
-            loss = main_model_criterion(embeddings, main_model_labels)
+                loss = main_model_criterion(embeddings, main_model_labels)
 
-            main_model_optimizer.zero_grad()
-            loss.backward()
-            main_model_optimizer.step()
+                main_model_optimizer.zero_grad()
+                loss.backward()
+                main_model_optimizer.step()
 
-            total_loss += loss.item()
+                total_loss += loss.item()
 
 
             if config.summarized_per_class==0:
@@ -172,6 +181,32 @@ def train(config, plot_graph=False):
 
             if batch_idx % config.tau == 5:
 
+                if memory.is_full_mc(labels_from_this_batch[0]):
+
+                    if not this_task_assigned_optimizer_to_images:
+
+                        this_task_Ms_images = []
+                        this_task_Ms_labels = []
+
+                        for label in labels_from_this_batch:
+                            inputs_Mc, labels_Mc = memory.get_mc(label)
+
+                            this_task_Ms_images.append(inputs_Mc)
+                            this_task_Ms_labels.append(labels_Mc)
+
+                        this_task_Ms_images = copy.deepcopy(torch.cat(this_task_Ms_images, dim=0)).requires_grad_()
+                        this_task_Ms_labels = torch.cat(this_task_Ms_labels)
+
+                        summarizing_image_optimizer = optim.SGD([this_task_Ms_images],
+                                                                lr=lr_for_summarizing_images_update,
+                                                                momentum=0.9)
+
+                        this_task_assigned_optimizer_to_images = True
+                else:
+                    continue
+
+
+
                 for label in labels_from_this_batch:
                     if config.start_summarization_when_mc_and_queue_full and not memory.is_full_mc(label):
                         continue
@@ -188,24 +223,12 @@ def train(config, plot_graph=False):
 
 
                     for iteration in range(config.summarization_iterations):
-                        inputs_Mc, labels_Mc = memory.get_mc(label)
-
-                        if inputs_Mc is not None:
-                            inputs_Mc = inputs_Mc.detach().requires_grad_(True)
-                        else:
-                            continue
-
-                        inputs_Bc = inputs_Bc.detach()
-
-
+                        inputs_Mc = this_task_Ms_images[this_task_Ms_labels == label]
+                        labels_Mc = this_task_Ms_labels[this_task_Ms_labels == label]
 
                         inputs_Ms_diff_Mc, labels_Ms_diff_Mc = memory.get_ms_diff_mc(label_to_discard=label,
                                                                                      current_task=task_number,
                                                                                      batch_size=config.ms_diff_mc_batch_size)
-
-                        summarizing_image_optimizer = optim.SGD([inputs_Mc],
-                                                                lr=lr_for_summarizing_images_update,
-                                                                momentum=0.9)  # Only updating Mc
 
                         diff_aug = DifferentiableAugmentation(strategy='color_crop', batch=False)
                         match_aug = transforms.Compose([diff_aug])
@@ -214,7 +237,6 @@ def train(config, plot_graph=False):
                         augmented_inputs_Mc = inputs_aug[len(inputs_Bc):]
 
                         if inputs_Ms_diff_Mc is not None:
-                            inputs_Ms_diff_Mc.detach()
                             with torch.no_grad():
                                 emb_Ms_diff_Mc = summarizing_model.embedding(inputs_Ms_diff_Mc)
                         _, out_Bc = summarizing_model(augmented_inputs_Bc)
@@ -269,13 +291,13 @@ def train(config, plot_graph=False):
                         summarizing_image_loss.backward()
                         summarizing_image_optimizer.step()
 
-                        memory.update_mc(new_tensors=inputs_Mc.detach(), label=label)
+                        img_new = this_task_Ms_images[this_task_Ms_labels == label]
+                        memory.update_mc(new_tensors=img_new.detach(), label=label)
 
 
             memory.add_batch(inputs, labels)
             current_task_queue.add(inputs, labels)
 
-            inputs.detach()
             mo_inputs, mo_labels = memory.sample_mo_for_summarizing_model_training(10)
             if mo_labels is not None:
 
@@ -307,8 +329,12 @@ def train(config, plot_graph=False):
         if config.contrastive_learning:
             ncm_classifier.update_means(memory, task_number, main_model)
 
+        print()
+        test_loaders = []
         for past_task_number in range(task_number + 1):  # past tasks, including this one
             test_loader = sequential_dataset.get_test_loader_for_task(past_task_number)
+
+            test_loaders.append(test_loader)
 
             correct, total = 0, 0
             with torch.no_grad():
@@ -347,6 +373,24 @@ def train(config, plot_graph=False):
         if plot_graph:
             plt.plot(task_list, accuracy_through_time[task], marker='o', label=f'Task {task}')
 
+    from PIL import Image
+
+    for i, (image, label) in enumerate(memory.buffer):
+        img_array = image.to("cpu").numpy()
+
+        if img_array.ndim == 3 and img_array.shape[0] in [1, 3]:
+            img_array = img_array.transpose(1, 2, 0)
+
+        if img_array.dtype != 'uint8':
+            img_array = (img_array * 255).clip(0, 255).astype('uint8')
+
+        output_dir = f"summarized_images/class_{label}"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Save image
+        img = Image.fromarray(img_array)
+        img.save(os.path.join(output_dir, f"image_{i}.png"))
+
     if plot_graph:
         plt.xlabel('Time')
         plt.ylabel('Accuracy')
@@ -354,7 +398,11 @@ def train(config, plot_graph=False):
         plt.legend()
         plt.grid(True)
         plt.savefig(f"plots/{config.dataset}/{config.buffer_size}/plot_{config.seed}_{random.randint(1, 1_000_000)}.png")
-        # plt.show()
         plt.close()
 
     return test_acc
+
+
+if __name__ == "__main__":
+    ssd_config = Config()
+    train(ssd_config)
